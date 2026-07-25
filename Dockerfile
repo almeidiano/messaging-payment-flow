@@ -3,16 +3,18 @@ FROM eclipse-temurin:24-jdk AS builder
 
 WORKDIR /app
 
-# Copia apenas os arquivos de configuração do Gradle primeiro (melhor cache)
-COPY gradlew settings.gradle build.gradle ./
-COPY gradle ./gradle
+# Instala o Maven
+RUN apt-get update && apt-get install -y maven && rm -rf /var/lib/apt/lists/*
+
+# Copia apenas o pom.xml primeiro para aproveitar o cache do Docker
+COPY pom.xml ./
 
 # Baixa as dependências sem compilar o código-fonte
-RUN ./gradlew dependencies --no-daemon || true
+RUN mvn dependency:go-offline -q
 
 # Copia o código-fonte e gera o fat-jar
 COPY src ./src
-RUN ./gradlew bootJar --no-daemon
+RUN mvn package -DskipTests -q
 
 # ─── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM eclipse-temurin:24-jre
@@ -25,7 +27,7 @@ WORKDIR /app
 # Cria usuário sem privilégios para rodar a aplicação
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-COPY --from=builder /app/build/libs/*.jar app.jar
+COPY --from=builder /app/target/*.jar app.jar
 
 RUN chown appuser:appuser app.jar
 USER appuser
